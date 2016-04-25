@@ -162,6 +162,15 @@ void eval(char *cmdline)
   int bg = parseline(cmdline, argv);
   if (!builtin_cmd(argv)) {
     //we fork and execute a child process
+    //first thing to do is fork off a child process
+    if(fork() == 0 ){
+      //in the child process at this point
+      execv(argv[0], argv); //pass in the arguments to execute
+    }
+    if (!bg) { //tests to see if the process is child or parent (child is fg)
+      wait(NULL); //we dont care about the return value of the child
+      //parent process will fall in here
+    }
   }
   //
   // The 'bg' variable is TRUE if the job should run
