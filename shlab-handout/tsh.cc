@@ -163,9 +163,13 @@ void eval(char *cmdline)
   if (!builtin_cmd(argv)) {
     //we fork and execute a child process
     //first thing to do is fork off a child process
+
     if(fork() == 0 ){
       //in the child process at this point
-      execv(argv[0], argv); //pass in the arguments to execute
+      if (execv(argv[0], argv) < 0){ //test if bad command is put in so that shells are not created
+        printf("Command not found\n");
+        exit(0);
+      }
     }
     if (!bg) { //tests to see if the process is child or parent (child is fg)
       wait(NULL); //we dont care about the return value of the child
