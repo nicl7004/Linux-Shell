@@ -1,7 +1,7 @@
 // 
 // tsh - A tiny shell program with job control
 // 
-// <Put your name and login ID here>
+// <Brennon Lee brle1617 && >
 //
 
 using namespace std;
@@ -156,17 +156,58 @@ void eval(char *cmdline)
   // use below to launch a process.
   //
   char *argv[MAXARGS];
+  pid_t pid; //create pid variable
+  sigset_t set; //create a signal set
+  
+  sigemptyset(&set); //initialize set to be empty
+  sigaddset(&set, SIGCHLD); //add sigchild to set --SIGCHLD is sent when child terminates
 
   //
   // The 'bg' variable is TRUE if the job should run
   // in background mode or FALSE if it should run in FG
   //
-  int bg = parseline(cmdline, argv); 
+  int bg = parseline(cmdline, argv); // reads in from command line and returns 0 if foreground and 1 if background 
   if (argv[0] == NULL)  
     return;   /* ignore empty lines */
-
-  return;
-}
+    
+    if (builtin_cmd(argv)==0){ //if first arguement is not a built in function, then fork a child
+		
+			sigprocmask(SIG_BLOCK, &set, NULL); //parent blocks SIGCHILD signal temporarily
+			pid = fork();
+			if(pid < 0){
+					printf("fork() : forking error\n");
+					return;
+				}
+			if(pid == 0){
+					setpgid(0,0); //if 1st is zero, sets pid to the parent. 2nd arguement is zero, sets pgid to same as 1st parent.
+									//group id refers to all the children and parent.
+			if (execve(argv[0], argv, environ) < 0){
+					printf("%s : Command not found. \n", argv[0]);
+					exit(0);
+				}
+				}
+	else{						//parent process
+		if(bg == 0){			//Foreground process
+				if(!addjob(jobs, pid, FG, cmdline)){
+						return; //add pid to job list with state of foreground
+					}
+				sigprocmask(SIG_UNBLOCK, &set, NULL);  //unblock signals
+				
+				waitfg(pid); //unblock so children of children dont set a block
+			}
+		else{
+				if(!addjob(jobs, pid, BG, cmdline)){
+						return; //add pid to job list with state of background
+					}
+				sigprocmask(SIG_UNBLOCK, &set, NULL);
+				printf("[%d] (%d) %s\n", pid2jid(pid), pid, cmdline);
+			} 
+		} 
+		  return;
+		
+		}
+	}
+		    
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -179,7 +220,24 @@ void eval(char *cmdline)
 //
 int builtin_cmd(char **argv) 
 {
-  string cmd(argv[0]);
+  
+  if (strcmp(argv[0], "quit") == 0) {    //if first arguement is quit, then we exit
+		exit(0);
+	} 
+  if (strcmp(argv[0], "jobs") == 0) {   //if first arguement is jobs, then we list jobs
+		listjobs(jobs);
+		return 1;
+	  }
+  if (strcmp(argv[0], "fg") == 0) {   //if first arguement is fg, then we call do_bgfg
+		do_bgfg(argv);
+		return 1;
+	  }
+  if (strcmp(argv[0], "bg") == 0) {   //if first arguement is bg, then we call do_bgfg
+		do_bgfg(argv);
+		return 1;
+	  }
+  
+	  
   return 0;     /* not a builtin command */
 }
 
@@ -215,7 +273,7 @@ void do_bgfg(char **argv)
   else {
     printf("%s: argument must be a PID or %%jobid\n", argv[0]);
     return;
-  }
+}
 
   //
   // You need to complete rest. At this point,
@@ -226,10 +284,29 @@ void do_bgfg(char **argv)
   // so we've converted argv[0] to a string (cmd) for
   // your benefit.
   //
-  string cmd(argv[0]);
+  pid_t pid; //nedd the pid of the job
+  pid = jobp->pid; //get the job pid
+  if (jobp->state == ST){  //for stopped programs
+		if (!strcmp(argv[0], "fg")){ //if 1st arguement is fg
+				jobp->state = FG;  //chang the state of the process
+				kill(-pid,SIGCONT); //send a signal to continue to all the processes
+				waitfg(pid); //wait for it to terminate in fg before returning
+			}
+		if (!strcmp(argv[0], "bg")){
+				jobp->state = BG;
+				printf("[%d] (%d) %s", jobp->jid, pid, jobp->cmdline);
+				kill(-pid, SIGCONT); //send signal to continue to all the signals
+			}
+		if(jobp->state == BG){
+				if(!strcmp(argv[0], "fg")){ //move any processes in the background to foreground
+						jobp->state = FG;
+						waitfg(jobp->pid);
+					}
+			}
+	  }
 
   return;
-}
+} //----------------------------------------------> paranthesis
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -237,6 +314,9 @@ void do_bgfg(char **argv)
 //
 void waitfg(pid_t pid)
 {
+	while (fgpid(jobs) == pid){  //until the process is out of foreground, we stay in infinite loop
+		sleep(1);
+		}
   return;
 }
 
@@ -256,7 +336,31 @@ void waitfg(pid_t pid)
 //
 void sigchld_handler(int sig) 
 {
-  return;
+		pid_t pid;
+	int process_state; 
+	// Return imediately if no child has exited
+	while ((pid = waitpid(-1, &process_state, WNOHANG|WUNTRACED )) > 0) {   // waitpid function will return a value > 0 which is the PID of the terminated child.
+	  
+	  if (WIFEXITED(process_state))           // checks if children exited properly
+	{
+		deletejob(jobs,pid);                              // either terminated or stopped
+	}
+	if (WIFSIGNALED(process_state)) {			//WIFSIGNALED: True if child terminated by signal
+		printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(process_state)); // WTERMSIG returns the number of the signal that
+	    deletejob(jobs,pid);					// caused a child process to terminate
+		
+	   }   
+	if (WIFSTOPPED(process_state)) // if a process is stopped we change his state and print to the stdout
+	
+	{
+		getjobpid(jobs,pid)->state = ST;
+		printf("Job [%d] (%d) stopped by signal %d\n", pid2jid(pid),pid,WSTOPSIG(process_state));// WSTOPSIG returns the number of the signal that caused the	
+																								  // child to stop
+	}
+}	
+
+
+	return;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -267,6 +371,11 @@ void sigchld_handler(int sig)
 //
 void sigint_handler(int sig) 
 {
+	pid_t pid = fgpid(jobs);
+	
+	if(pid != 0){ //if the pid of the foreground process is different than zero
+		kill(-pid, SIGINT);
+	} //interrupt all the processes in the process group
   return;
 }
 
@@ -278,6 +387,10 @@ void sigint_handler(int sig)
 //
 void sigtstp_handler(int sig) 
 {
+	pid_t pid = fgpid(jobs);
+	
+	if (pid != 0)	//if the pid of the foreground process is different that zero
+		kill(-pid, SIGTSTP); //interrupt all the processes in the process group
   return;
 }
 
