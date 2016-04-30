@@ -1,8 +1,7 @@
 // 
 // tsh - A tiny shell program with job control
-// 
-// <Brennon Lee brle1617 && >
 //
+// <Brennon Lee brle1617 >
 
 using namespace std;
 
@@ -155,59 +154,62 @@ void eval(char *cmdline)
   // for the execve() routine, which you'll need to
   // use below to launch a process.
   //
-  char *argv[MAXARGS];
-  pid_t pid; //create pid variable
-  sigset_t set; //create a signal set
+  char *argv[MAXARGS]; // holds the arg for execve() function
   
-  sigemptyset(&set); //initialize set to be empty
-  sigaddset(&set, SIGCHLD); //add sigchild to set --SIGCHLD is sent when child terminates
+  pid_t pid; //create pid variable
+  sigset_t set; //declare a signal set
+  
+  sigemptyset(&set); 	//initializes set to be empty
+  sigaddset(&set, SIGCHLD);		//add the sigchild to the set
+  //SIGCHLD sent when child is stopped
 
-  //
+
   // The 'bg' variable is TRUE if the job should run
   // in background mode or FALSE if it should run in FG
   //
-  int bg = parseline(cmdline, argv); // reads in from command line and returns 0 if foreground and 1 if background 
+  int bg = parseline(cmdline, argv); //read from CL and returns 0 if Foreground and 1 if background
+  
   if (argv[0] == NULL)  
     return;   /* ignore empty lines */
     
-    if (builtin_cmd(argv)==0){ //if first arguement is not a built in function, then fork a child
-		
-			sigprocmask(SIG_BLOCK, &set, NULL); //parent blocks SIGCHILD signal temporarily
-			pid = fork();
-			if(pid < 0){
-					printf("fork() : forking error\n");
-					return;
-				}
-			if(pid == 0){
-					setpgid(0,0); //if 1st is zero, sets pid to the parent. 2nd arguement is zero, sets pgid to same as 1st parent.
-									//group id refers to all the children and parent.
-			if (execve(argv[0], argv, environ) < 0){
-					printf("%s : Command not found. \n", argv[0]);
-					exit(0);
-				}
-				}
-	else{						//parent process
-		if(bg == 0){			//Foreground process
-				if(!addjob(jobs, pid, FG, cmdline)){
-						return; //add pid to job list with state of foreground
-					}
-				sigprocmask(SIG_UNBLOCK, &set, NULL);  //unblock signals
-				
-				waitfg(pid); //unblock so children of children dont set a block
-			}
-		else{
-				if(!addjob(jobs, pid, BG, cmdline)){
-						return; //add pid to job list with state of background
-					}
-				sigprocmask(SIG_UNBLOCK, &set, NULL);
-				printf("[%d] (%d) %s\n", pid2jid(pid), pid, cmdline);
-			} 
-		} 
+ if (builtin_cmd(argv)==0){       // if the first argument is not a builtin commmand, then fork a child 
+	  
+	  sigprocmask(SIG_BLOCK, &set, NULL);   // Parent blocks SIGCHILD signal temporarily
+	  pid = fork();
+	  if (pid < 0 ){
+		  printf("fork() : forking error\n");
 		  return;
+	  }
+	  if(pid ==0) {
+		  setpgid(0,0);      // 1st argument, if zero, sets pid to the parent
+							 // 2nd argument, if zero, set pgid to the same as 1st argument
+							 // group id is used to refer to all the children and parent
+	
+	 if (execve(argv[0],argv,environ)< 0) { 
+		 printf("%s : Command not found. \n",argv[0]);
+		 exit(0);
+		 }
+	 }
+     else{								//The parent process
+     if(bg == 0)					//Foreground process
+		 {
+			 if(!addjob(jobs,pid,FG,cmdline)){
+				 return;}  //add pid to job list with state of Foreground
 		
+		sigprocmask(SIG_UNBLOCK, &set, NULL);		//unblock all signals in the set
+													//have to unblock so children of children dont a set block
+		waitfg(pid);
 		}
-	}
-		    
+		else{							//Background process
+			if(!addjob(jobs,pid,BG,cmdline)){return;} //add pid to job list with state of backround
+			sigprocmask(SIG_UNBLOCK, &set, NULL);
+			printf("[%d] (%d) %s\n", pid2jid(pid), pid, cmdline);
+		}
+	 }
+
+  return;
+}
+}
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -217,28 +219,30 @@ void eval(char *cmdline)
 // is a C string. We've cast this to a C++ string type to simplify
 // string comparisons; however, the do_bgfg routine will need 
 // to use the argv array as well to look for a job number.
-//
-int builtin_cmd(char **argv) 
-{
-  
-  if (strcmp(argv[0], "quit") == 0) {    //if first arguement is quit, then we exit
-		exit(0);
-	} 
-  if (strcmp(argv[0], "jobs") == 0) {   //if first arguement is jobs, then we list jobs
+// 
+int builtin_cmd(char **argv) 			//returns 1 if we have a built in argument
+{										// returns 0 if we do not have a built in command
+  if (strcmp(argv[0], "quit")==0) {
+	    exit(0);
+    }
+	
+    if (strcmp(argv[0], "jobs")==0) {		// if first argument is jobs we list them and return 1
 		listjobs(jobs);
 		return 1;
-	  }
-  if (strcmp(argv[0], "fg") == 0) {   //if first arguement is fg, then we call do_bgfg
-		do_bgfg(argv);
-		return 1;
-	  }
-  if (strcmp(argv[0], "bg") == 0) {   //if first arguement is bg, then we call do_bgfg
-		do_bgfg(argv);
-		return 1;
-	  }
-  
-	  
-  return 0;     /* not a builtin command */
+    }
+    
+    if((strcmp(argv[0], "fg")==0)){ // if we have a fg program we call do_bgfg where we will handle that
+	  do_bgfg(argv);
+	  return 1;
+	}
+
+	if((strcmp(argv[0], "bg")==0)){ // if we have a bg program we call do_bgfg where we will handle that
+	  do_bgfg(argv);
+	  return 1;
+	 }
+	
+	
+	return 0;     /* not a builtin command */
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -273,7 +277,7 @@ void do_bgfg(char **argv)
   else {
     printf("%s: argument must be a PID or %%jobid\n", argv[0]);
     return;
-}
+  }
 
   //
   // You need to complete rest. At this point,
@@ -284,29 +288,38 @@ void do_bgfg(char **argv)
   // so we've converted argv[0] to a string (cmd) for
   // your benefit.
   //
-  pid_t pid; //nedd the pid of the job
-  pid = jobp->pid; //get the job pid
-  if (jobp->state == ST){  //for stopped programs
-		if (!strcmp(argv[0], "fg")){ //if 1st arguement is fg
-				jobp->state = FG;  //chang the state of the process
-				kill(-pid,SIGCONT); //send a signal to continue to all the processes
-				waitfg(pid); //wait for it to terminate in fg before returning
+  pid_t  pid;  // need the pid of the job
+  pid = jobp->pid;  // get the job pid 
+  if (jobp->state == ST){    // work only with stopped programs
+	  
+	 if(!strcmp(argv[0],"fg")){  // if first argument is fg
+		  jobp->state = FG;      // change the state of the process
+		  kill(-pid,SIGCONT);    // send a signal to continue to all the process
+		  waitfg(pid);           // since it's foreground now we have to wait for it to terminate before 
+								 // returning
+		  }
+	  
+	  
+	  if(!strcmp(argv[0],"bg")){ // if first argument is equal to bg we change state of the processe
+		  jobp->state = BG;
+		  printf("[%d] (%d) %s", jobp->jid, pid, jobp->cmdline);
+		  kill(-pid,SIGCONT);  // send signal to continue to all the signals
+		 
+		  }
+		  		  
+					    }
+					    
+	if(jobp->state == BG){   //now if we have any processes in the background that we need
+		if(!strcmp(argv[0],"fg")){  // to move foregroung we do that
+			jobp->state = FG;
+			waitfg(jobp->pid);
 			}
-		if (!strcmp(argv[0], "bg")){
-				jobp->state = BG;
-				printf("[%d] (%d) %s", jobp->jid, pid, jobp->cmdline);
-				kill(-pid, SIGCONT); //send signal to continue to all the signals
-			}
-		if(jobp->state == BG){
-				if(!strcmp(argv[0], "fg")){ //move any processes in the background to foreground
-						jobp->state = FG;
-						waitfg(jobp->pid);
-					}
-			}
-	  }
-
+		
+		}
+  
   return;
-} //----------------------------------------------> paranthesis
+}
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -314,9 +327,9 @@ void do_bgfg(char **argv)
 //
 void waitfg(pid_t pid)
 {
-	while (fgpid(jobs) == pid){  //until the process is out of foreground, we stay in infinite loop
-		sleep(1);
-		}
+  while(fgpid(jobs)== pid){   // until the process is out of foreground, we stay in this infinite loop
+    sleep(1);
+  } 
   return;
 }
 
@@ -336,7 +349,7 @@ void waitfg(pid_t pid)
 //
 void sigchld_handler(int sig) 
 {
-		pid_t pid;
+	pid_t pid;
 	int process_state; 
 	// Return imediately if no child has exited
 	while ((pid = waitpid(-1, &process_state, WNOHANG|WUNTRACED )) > 0) {   // waitpid function will return a value > 0 which is the PID of the terminated child.
@@ -361,7 +374,8 @@ void sigchld_handler(int sig)
 
 
 	return;
-}
+}								 // the option -1 blocks the call to waitpid until any arbitrary child have been terminated
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -372,10 +386,10 @@ void sigchld_handler(int sig)
 void sigint_handler(int sig) 
 {
 	pid_t pid = fgpid(jobs);
-	
-	if(pid != 0){ //if the pid of the foreground process is different than zero
-		kill(-pid, SIGINT);
-	} //interrupt all the processes in the process group
+
+  if (pid != 0)			// if the pid of the foreground process is different than zero
+    kill(-pid, SIGINT);	// interrupt all the processes in the process group
+
   return;
 }
 
@@ -388,16 +402,14 @@ void sigint_handler(int sig)
 void sigtstp_handler(int sig) 
 {
 	pid_t pid = fgpid(jobs);
-	
-	if (pid != 0)	//if the pid of the foreground process is different that zero
-		kill(-pid, SIGTSTP); //interrupt all the processes in the process group
+
+  if (pid != 0)			// if the pid of the foreground process is different than zero
+    kill(-pid, SIGTSTP);	// interrupt all the processes in the process group
+
   return;
+
 }
 
 /*********************
  * End signal handlers
  *********************/
-
-
-
-
